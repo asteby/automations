@@ -47,7 +47,6 @@ server {
     server_name $DOMAIN;
 EOF
 
-# Si no es Laravel, define el root aquí
 if [[ "$TYPE" != "laravel" ]]; then
 cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
     root $WEB_ROOT;
@@ -65,7 +64,6 @@ cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
     client_max_body_size 50M;
 EOF
 
-# ---------------- BLOQUES POR TIPO ----------------
 case "$TYPE" in
   laravel)
     mkdir -p "$WEB_ROOT/public"
@@ -123,8 +121,21 @@ EOF
     ;;
 esac
 
-# Cierra el bloque server
 echo "}" >> "$SITES_AVAILABLE/$DOMAIN"
+
+# ---------------- CERTIFICADO SSL ----------------
+CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
+
+if [ ! -d "$CERT_DIR" ]; then
+  echo "🔐 Certificado no encontrado para $DOMAIN. Generando con certbot..."
+  certbot certonly --nginx -d "$DOMAIN" --non-interactive --agree-tos -m admin@$DOMAIN || {
+    echo "❌ Error generando certificado con Certbot."
+    rm -f "$SITES_AVAILABLE/$DOMAIN"
+    exit 1
+  }
+else
+  echo "🔐 Certificado SSL ya existe para $DOMAIN"
+fi
 
 # ---------------- HABILITAR Y RECARGAR ----------------
 ln -s "$SITES_AVAILABLE/$DOMAIN" "$SITES_ENABLED/" && \

@@ -43,8 +43,16 @@ server {
 server {
     listen 443 ssl;
     server_name $DOMAIN;
+EOF
 
+# Si no es Laravel, define el root aquí
+if [[ "$TYPE" != "laravel" ]]; then
+cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
     root $WEB_ROOT;
+EOF
+fi
+
+cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
     index index.php index.html index.htm;
 
     ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
@@ -58,6 +66,7 @@ EOF
 # ---------------- BLOQUES POR TIPO ----------------
 case "$TYPE" in
   laravel)
+    mkdir -p "$WEB_ROOT/public"
     cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
 
     root $WEB_ROOT/public;
@@ -112,6 +121,7 @@ EOF
     ;;
 esac
 
+# Cierra el bloque server
 echo "}" >> "$SITES_AVAILABLE/$DOMAIN"
 
 # ---------------- HABILITAR Y RECARGAR ----------------

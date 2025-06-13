@@ -10,29 +10,36 @@ SITES_ENABLED="$NGINX_DIR/sites-enabled"
 read -p "🔤 Ingresa el nombre del dominio (ej. app.tudominio.com): " DOMAIN
 read -p "🔧 Tipo de proyecto (laravel, php, html, vue): " TYPE
 
-# ---------------- VALIDACIÓN ----------------
+# ---------------- VALIDACIÓN BÁSICA ----------------
 if [[ -z "$DOMAIN" || -z "$TYPE" ]]; then
   echo "❌ Dominio y tipo son requeridos."
   exit 1
 fi
 
-# Sobrescribe si ya existe
+# Verificar DNS antes de intentar generar certificado
+if ! dig +short "$DOMAIN" | grep -qE '^[0-9.]+'; then
+  echo "❌ El dominio $DOMAIN no apunta a esta máquina. Configura su DNS antes de continuar."
+  exit 1
+fi
+
+# Eliminar configuración anterior si existe
 if [ -f "$SITES_AVAILABLE/$DOMAIN" ]; then
-  echo "⚠️ Ya existe configuración para $DOMAIN. Reemplazando..."
+  echo "⚠️ Reemplazando configuración previa de $DOMAIN..."
   rm -f "$SITES_AVAILABLE/$DOMAIN"
   rm -f "$SITES_ENABLED/$DOMAIN"
 fi
 
+# ---------------- RUTA Y PHP SOCKET ----------------
 WEB_ROOT="$WEB_ROOT_BASE/$DOMAIN"
 PHP_SOCKET=$(find /var/run/php/ -type s -name "php*-fpm.sock" | sort -Vr | head -n 1)
 
 if [[ "$TYPE" =~ ^(php|laravel)$ ]] && [[ -z "$PHP_SOCKET" ]]; then
-  echo "❌ No se encontró socket PHP-FPM"
+  echo "❌ No se encontró socket PHP-FPM necesario."
   exit 1
 fi
 
 mkdir -p "$WEB_ROOT"
-echo "📁 Creado root en $WEB_ROOT"
+echo "📁 Root creado en $WEB_ROOT"
 
 # ---------------- GENERAR CONFIGURACIÓN ----------------
 cat > "$SITES_AVAILABLE/$DOMAIN" <<EOF
@@ -47,10 +54,12 @@ server {
     server_name $DOMAIN;
 EOF
 
-if [[ "$TYPE" != "laravel" ]]; then
-cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
-    root $WEB_ROOT;
-EOF
+# Laravel root en /public
+if [[ "$TYPE" == "laravel" ]]; then
+  mkdir -p "$WEB_ROOT/public"
+  echo "    root $WEB_ROOT/public;" >> "$SITES_AVAILABLE/$DOMAIN"
+else
+  echo "    root $WEB_ROOT;" >> "$SITES_AVAILABLE/$DOMAIN"
 fi
 
 cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
@@ -66,10 +75,7 @@ EOF
 
 case "$TYPE" in
   laravel)
-    mkdir -p "$WEB_ROOT/public"
-    cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
-
-    root $WEB_ROOT/public;
+cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
 
     location / {
         try_files \$uri \$uri/ /index.php?\$query_string;
@@ -84,7 +90,7 @@ case "$TYPE" in
 EOF
     ;;
   php)
-    cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
+cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
 
     location / {
         try_files \$uri =404;
@@ -99,7 +105,7 @@ EOF
 EOF
     ;;
   html)
-    cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
+cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
 
     location / {
         try_files \$uri \$uri/ =404;
@@ -107,7 +113,7 @@ EOF
 EOF
     ;;
   vue)
-    cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
+cat >> "$SITES_AVAILABLE/$DOMAIN" <<EOF
 
     location / {
         try_files \$uri \$uri/ /index.html;
@@ -115,7 +121,7 @@ EOF
 EOF
     ;;
   *)
-    echo "❌ Tipo no soportado: $TYPE"
+    echo "❌ Tipo de proyecto no soportado: $TYPE"
     rm -f "$SITES_AVAILABLE/$DOMAIN"
     exit 1
     ;;
@@ -127,21 +133,22 @@ echo "}" >> "$SITES_AVAILABLE/$DOMAIN"
 CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
 
 if [ ! -d "$CERT_DIR" ]; then
-  echo "🔐 Certificado no encontrado para $DOMAIN. Generando con certbot..."
+  echo "🔐 Intentando generar certificado SSL para $DOMAIN..."
   certbot certonly --nginx -d "$DOMAIN" --non-interactive --agree-tos -m admin@$DOMAIN || {
-    echo "❌ Error generando certificado con Certbot."
+    echo "❌ Certbot falló. Revisa el dominio o el log: /var/log/letsencrypt/letsencrypt.log"
     rm -f "$SITES_AVAILABLE/$DOMAIN"
     exit 1
   }
 else
-  echo "🔐 Certificado SSL ya existe para $DOMAIN"
+  echo "✅ Certificado SSL ya existente."
 fi
 
-# ---------------- HABILITAR Y RECARGAR ----------------
-ln -s "$SITES_AVAILABLE/$DOMAIN" "$SITES_ENABLED/" && \
+# ---------------- HABILITAR SITIO ----------------
+ln -s "$SITES_AVAILABLE/$DOMAIN" "$SITES_ENABLED/" 2>/dev/null
+
 nginx -t && systemctl reload nginx && \
 echo "✅ Sitio $DOMAIN creado y habilitado en Nginx." || {
-  echo "❌ Error al habilitar sitio."
+  echo "❌ Error al validar o recargar Nginx."
   rm -f "$SITES_ENABLED/$DOMAIN"
   exit 1
 }

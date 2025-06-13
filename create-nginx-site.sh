@@ -16,9 +16,11 @@ if [[ -z "$DOMAIN" || -z "$TYPE" ]]; then
   exit 1
 fi
 
+# Sobrescribe si ya existe
 if [ -f "$SITES_AVAILABLE/$DOMAIN" ]; then
-  echo "⚠️ Ya existe configuración para $DOMAIN"
-  exit 1
+  echo "⚠️ Ya existe configuración para $DOMAIN. Reemplazando..."
+  rm -f "$SITES_AVAILABLE/$DOMAIN"
+  rm -f "$SITES_ENABLED/$DOMAIN"
 fi
 
 WEB_ROOT="$WEB_ROOT_BASE/$DOMAIN"
